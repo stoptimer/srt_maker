@@ -16,6 +16,7 @@ class AudioExtractor:
 
     def extract(self, video_path: str) -> Path:
         """从视频提取音频，返回临时 WAV 文件路径"""
+        self.cleanup()
         self._temp_dir = Path(tempfile.mkdtemp(prefix="srt_maker_"))
         self._audio_path = self._temp_dir / "audio.wav"
         self._ffmpeg.extract_audio(video_path, str(self._audio_path))

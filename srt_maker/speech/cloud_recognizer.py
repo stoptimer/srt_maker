@@ -20,7 +20,7 @@ class CloudSpeechRecognizer(SpeechRecognizer):
     def name(self) -> str:
         return "云端 API"
 
-    def recognize(self, audio_path: str, language: str) -> SubtitleList:
+    async def recognize(self, audio_path: str, language: str) -> SubtitleList:
         """识别音频并返回字幕列表"""
         subtitles = SubtitleList()
 
@@ -36,13 +36,15 @@ class CloudSpeechRecognizer(SpeechRecognizer):
         response.raise_for_status()
         data = response.json()
 
-        # 假设返回格式: {"results": [{"start": 0.0, "end": 2.0, "text": "..."}]}
         for item in data.get("results", []):
-            entry = SubtitleEntry(
-                start_time=item["start"],
-                end_time=item["end"],
-                text=item["text"].strip(),
-            )
-            subtitles.entries.append(entry)
+            try:
+                entry = SubtitleEntry(
+                    start_time=item["start"],
+                    end_time=item["end"],
+                    text=item["text"].strip(),
+                )
+                subtitles.entries.append(entry)
+            except KeyError as e:
+                raise ValueError(f"云端 API 返回格式异常，缺少字段: {e}") from e
 
         return subtitles

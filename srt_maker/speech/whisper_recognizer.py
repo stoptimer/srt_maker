@@ -20,7 +20,7 @@ class WhisperRecognizer(SpeechRecognizer):
     def name(self) -> str:
         return "Whisper"
 
-    def recognize(self, audio_path: str, language: str) -> SubtitleList:
+    async def recognize(self, audio_path: str, language: str) -> SubtitleList:
         """识别音频并返回字幕列表"""
         self._load_model()
         result = self._model.transcribe(audio_path, language=language, verbose=False)

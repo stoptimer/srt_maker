@@ -1,5 +1,6 @@
 import subprocess
 import os
+import tempfile
 from pathlib import Path
 
 # 默认 FFmpeg 路径（可通过环境变量或构造参数覆盖）
@@ -89,11 +90,13 @@ class FFmpegWrapper:
         将 SRT 转换为带样式的 ASS 文件，避免 force_style 参数解析问题。
         临时 ASS 文件创建在与视频文件同目录，使用相对路径避免 Windows 盘符冒号问题。
         """
-        import tempfile
+        from srt_maker.io.srt_parser import parse_srt
+        from srt_maker.core.timecode import seconds_to_srt
 
-        # 读取 SRT 内容
+        # 读取并解析 SRT
         with open(srt_path, "r", encoding="utf-8") as f:
             srt_content = f.read()
+        entries = parse_srt(srt_content)
 
         # 将 SRT 内容转换为 ASS 文件（含样式信息）
         ass_content = (
@@ -116,59 +119,27 @@ class FFmpegWrapper:
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
         )
 
-        # 解析 SRT 条目并转换为 ASS 事件
-        lines = srt_content.strip().split("\n")
-        i = 0
-        while i < len(lines):
-            line = lines[i].strip()
-            if not line:
-                i += 1
-                continue
-
-            # 跳过序号行
-            i += 1
-            if i >= len(lines):
-                break
-
-            # 时间轴行
-            time_line = lines[i].strip()
-            i += 1
-
-            # 字幕文本行（可能多行）
-            text_lines = []
-            while i < len(lines) and lines[i].strip():
-                text_lines.append(lines[i].strip())
-                i += 1
-
-            # 解析时间轴
-            parts = time_line.split(" --> ")
-            if len(parts) != 2:
-                continue
-
-            start = parts[0].strip().replace(",", ".")
-            end = parts[1].strip().replace(",", ".")
-            text = "\\N".join(text_lines)
-
+        for entry in entries:
+            start = seconds_to_srt(entry.start_time).replace(",", ".")
+            end = seconds_to_srt(entry.end_time).replace(",", ".")
+            text = entry.text.replace("\n", "\\N")
             ass_content += (
                 f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n"
             )
 
         # 在视频文件同目录创建临时 ASS 文件，使用相对路径避免 Windows 盘符问题
         video_dir = str(Path(video_path).parent)
-        ass_file = tempfile.NamedTemporaryFile(
-            mode="w",
+        ass_fd, ass_path = tempfile.mkstemp(
             suffix=".ass",
             prefix="srt_maker_",
-            delete=False,
             dir=video_dir,
-            encoding="utf-8",
         )
         try:
-            ass_file.write(ass_content)
-            ass_file.close()
+            with os.fdopen(ass_fd, "w", encoding="utf-8") as f:
+                f.write(ass_content)
 
             # 使用相对于视频目录的文件名（无盘符，无冒号）
-            ass_filename = Path(ass_file.name).name
+            ass_filename = Path(ass_path).name
 
             cmd = [
                 self._ffmpeg_cmd(),
@@ -179,4 +150,4 @@ class FFmpegWrapper:
             ]
             subprocess.run(cmd, check=True, timeout=600, cwd=video_dir)
         finally:
-            os.unlink(ass_file.name)
+            os.unlink(ass_path)

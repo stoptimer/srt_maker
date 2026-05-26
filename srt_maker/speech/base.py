@@ -12,7 +12,7 @@ class SpeechRecognizer(ABC):
     """
 
     @abstractmethod
-    def recognize(self, audio_path: str, language: str) -> SubtitleList:
+    async def recognize(self, audio_path: str, language: str) -> SubtitleList:
         """识别音频并返回字幕列表
 
         Args:

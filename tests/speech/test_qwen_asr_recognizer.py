@@ -57,6 +57,44 @@ def test_align_text_without_intervals():
     assert len(result) == 0
 
 
+def test_align_10_sentences_2_intervals():
+    """测试 10 句分配到 2 区间 — 验证所有句子被分配"""
+    text = "A。B。C。D。E。F。G。H。I。J"
+    vad_intervals = [(0.0, 5.0), (6.0, 10.0)]
+    result = align_text_with_vad(text, vad_intervals)
+    assert len(result) == 2
+    # 10 句均分到 2 区间，每区间 5 句
+    assert result[0].text == "ABCDE"
+    assert result[1].text == "FGHIJ"
+
+def test_align_3_sentences_2_intervals():
+    """测试 3 句分配到 2 区间 — 边界情况"""
+    text = "A。B。C"
+    vad_intervals = [(0.0, 2.0), (3.0, 5.0)]
+    result = align_text_with_vad(text, vad_intervals)
+    assert len(result) == 2
+    # 3 句分 2 区间：base=1, remainder=1，第一区间 2 句，第二区间 1 句
+    assert result[0].text == "AB"
+    assert result[1].text == "C"
+
+def test_align_5_sentences_2_intervals():
+    """测试 5 句分配到 2 区间 — 不均匀分配"""
+    text = "A。B。C。D。E"
+    vad_intervals = [(0.0, 3.0), (4.0, 7.0)]
+    result = align_text_with_vad(text, vad_intervals)
+    assert len(result) == 2
+    # 5 句分 2 区间：base=2, remainder=1，第一区间 3 句，第二区间 2 句
+    assert result[0].text == "ABC"
+    assert result[1].text == "DE"
+
+def test_align_single_sentence_single_interval():
+    """测试单句子单区间"""
+    text = "你好"
+    vad_intervals = [(0.0, 1.0)]
+    result = align_text_with_vad(text, vad_intervals)
+    assert len(result) == 1
+    assert result[0].text == "你好"
+
 def test_qwen_name():
     """测试 qwen3-asr 识别器名称"""
     recognizer = QwenASRRecognizer(api_url="http://localhost:8080")

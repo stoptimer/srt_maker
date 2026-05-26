@@ -19,7 +19,7 @@ def _split_sentences(text: str) -> list[str]:
     Returns:
         去除空白后的句子列表
     """
-    sentences = re.split(r"[，。！？；\.\!\?\;]+", text)
+    sentences = re.split(r"[，。！？；.!?;]+", text)
     return [s.strip() for s in sentences if s.strip()]
 
 
@@ -53,13 +53,16 @@ def align_text_with_vad(
             else:
                 entries.append(SubtitleEntry(start, end, ""))
     else:
-        # 句子数 > 区间数：合并相邻句子
-        intervals_per_sentence = len(sentences) / len(vad_intervals)
+        # 句子数 > 区间数：按区间均匀分配句子，最后一个区间取剩余全部
+        import math
+        base_count = len(sentences) // len(vad_intervals)
+        remainder = len(sentences) % len(vad_intervals)
         sentence_idx = 0
 
-        for start, end in vad_intervals:
-            num_sentences = max(1, int(intervals_per_sentence))
-            merged = " ".join(sentences[sentence_idx:sentence_idx + num_sentences])
+        for idx, (start, end) in enumerate(vad_intervals):
+            # 前 remainder 个区间多分 1 句
+            num_sentences = base_count + (1 if idx < remainder else 0)
+            merged = "".join(sentences[sentence_idx:sentence_idx + num_sentences])
             entries.append(SubtitleEntry(start, end, merged))
             sentence_idx += num_sentences
 
@@ -92,7 +95,7 @@ class QwenASRRecognizer(SpeechRecognizer):
     def name(self) -> str:
         return "qwen3-asr"
 
-    def recognize(self, audio_path: str, language: str) -> SubtitleList:
+    async def recognize(self, audio_path: str, language: str) -> SubtitleList:
         """识别音频并返回字幕列表
 
         Args:
