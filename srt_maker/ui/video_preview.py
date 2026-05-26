@@ -1,13 +1,11 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 import cv2
 
 
 class VideoPreview(QWidget):
     """视频预览组件 — 使用 OpenCV 逐帧读取"""
-
-    seek_requested = Signal(float)  # 跳转信号（秒）
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -17,7 +15,6 @@ class VideoPreview(QWidget):
         self._timer = QTimer()
         self._timer.timeout.connect(self._on_timer)
         self._playing = False
-        self._current_frame = b""
 
         layout = QVBoxLayout(self)
 
