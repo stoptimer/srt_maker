@@ -1,7 +1,8 @@
 import pytest
 from srt_maker.video.ffmpeg_wrapper import FFmpegWrapper
 
-wrapper = FFmpegWrapper()
+# 使用自定义 FFmpeg 路径
+wrapper = FFmpegWrapper(ffmpeg_dir=r"E:\ffmpeg\bin")
 ffmpeg_available = wrapper.is_available()
 
 def test_ffmpeg_available():
