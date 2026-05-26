@@ -108,7 +108,7 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("主工具栏")
 
         self._recognizer_combo = QComboBox()
-        self._recognizer_combo.addItems(["Whisper", "qwen3-asr", "云端 API"])
+        self._recognizer_combo.addItems(["Whisper", "qwen3-asr", "云端API"])
         toolbar.addWidget(QLabel("识别方式:"))
         toolbar.addWidget(self._recognizer_combo)
 
