@@ -98,7 +98,8 @@ class VideoPreview(QWidget):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = frame.shape
         qimg = QImage(frame.data, w, h, ch * w, QImage.Format_RGB888)
-        self._label.setPixmap(QPixmap.fromImage(qimg).scaled(
+        pixmap = QPixmap.fromImage(qimg.copy())
+        self._label.setPixmap(pixmap.scaled(
             self._label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         ))
         current_frame = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))

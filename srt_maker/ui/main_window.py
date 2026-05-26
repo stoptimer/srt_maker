@@ -130,27 +130,33 @@ class MainWindow(QMainWindow):
             self, "打开视频", "", "视频文件 (*.mp4 *.avi *.mkv *.mov *.webm)"
         )
         if path:
-            self._video_path = path
-            self.video_preview.load_video(path)
-            self.statusBar().showMessage(f"已加载: {path}")
+            try:
+                self.video_preview.load_video(path)
+                self._video_path = path
+                self.statusBar().showMessage(f"已加载: {path}")
+            except ValueError as e:
+                QMessageBox.critical(self, "错误", str(e))
 
     def _import_subtitles(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "导入字幕", "", "字幕文件 (*.srt *.ass)"
         )
         if path:
-            with open(path, "r", encoding="utf-8") as f:
-                content = f.read()
-            if path.endswith(".srt"):
-                from srt_maker.io.srt_parser import parse_srt
-                self._subtitles = SubtitleList()
-                self._subtitles.entries = parse_srt(content)
-            elif path.endswith(".ass"):
-                from srt_maker.io.ass_parser import parse_ass
-                self._subtitles = SubtitleList()
-                self._subtitles.entries = parse_ass(content)
-            self.subtitle_editor.load_subtitles(self._subtitles)
-            self.statusBar().showMessage(f"已导入: {path}")
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if path.endswith(".srt"):
+                    from srt_maker.io.srt_parser import parse_srt
+                    self._subtitles = SubtitleList()
+                    self._subtitles.entries = parse_srt(content)
+                elif path.endswith(".ass"):
+                    from srt_maker.io.ass_parser import parse_ass
+                    self._subtitles = SubtitleList()
+                    self._subtitles.entries = parse_ass(content)
+                self.subtitle_editor.load_subtitles(self._subtitles)
+                self.statusBar().showMessage(f"已导入: {path}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"导入字幕失败: {e}")
 
     def _export_srt(self):
         if not self._subtitles.entries:
@@ -160,10 +166,13 @@ class MainWindow(QMainWindow):
             self, "导出 SRT", "", "SRT 文件 (*.srt)"
         )
         if path:
-            content = write_srt(self._subtitles.entries)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(content)
-            self.statusBar().showMessage(f"已导出: {path}")
+            try:
+                content = write_srt(self._subtitles.entries)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                self.statusBar().showMessage(f"已导出: {path}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"导出失败: {e}")
 
     def _start_recognition(self):
         if not self._video_path:
@@ -187,6 +196,8 @@ class MainWindow(QMainWindow):
         if row >= 0 and row < len(self._subtitles.entries):
             entry = self._subtitles.entries[row]
             self.video_preview.seek(entry.start_time)
+            self.waveform.clear_highlights()
+            self.waveform.highlight_subtitle(entry.start_time, entry.end_time)
 
     def _show_about(self):
         QMessageBox.about(self, "关于", "SRT Maker\n视频字幕生成与烧录工具")
