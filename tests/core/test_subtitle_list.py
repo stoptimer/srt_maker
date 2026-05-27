@@ -164,3 +164,21 @@ def test_redo_on_empty():
     sl = SubtitleList()
     sl.redo()  # 不应抛出异常
     assert len(sl.entries) == 0
+
+def test_replace_with_entries():
+    """测试 replace 用 entries 列表替换字幕"""
+    sl = SubtitleList()
+    sl.add(SubtitleEntry(1.0, 2.0, "旧条目"))
+
+    new_sl = SubtitleList()
+    new_sl.add(SubtitleEntry(3.0, 4.0, "新条目"))
+
+    # replace 接收 list[SubtitleEntry]，应传入 .entries
+    sl.replace(new_sl.entries)
+    assert len(sl.entries) == 1
+    assert sl.entries[0].text == "新条目"
+
+    # 撤销后恢复旧条目
+    sl.undo()
+    assert len(sl.entries) == 1
+    assert sl.entries[0].text == "旧条目"

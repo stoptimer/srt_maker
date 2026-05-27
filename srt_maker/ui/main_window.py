@@ -241,7 +241,7 @@ class MainWindow(QMainWindow):
 
     def _on_recognition_finished(self, subtitles: SubtitleList):
         """识别完成 — 加载结果"""
-        self._subtitles.replace(subtitles)
+        self._subtitles.replace(subtitles.entries)
         self.subtitle_editor.load_subtitles(self._subtitles)
 
         # 加载音频波形
