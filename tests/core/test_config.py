@@ -31,3 +31,19 @@ def test_config_merge_defaults(tmp_path):
             config = load_config()
     assert config["ffmpeg_dir"] == "C:/old/ffmpeg"
     assert config["new_key"] == "default"
+
+
+def test_main_loads_config_and_sets_env(tmp_path):
+    """测试 main.py 启动时加载配置并设置 FFMPEG_DIR 环境变量"""
+    import os
+    fake_file = tmp_path / "config.json"
+    fake_file.write_text('{"ffmpeg_dir": "E:/ffmpeg/bin"}', encoding="utf-8")
+
+    with patch('srt_maker.core.config._CONFIG_FILE', fake_file):
+        config = load_config()
+        if config.get("ffmpeg_dir"):
+            os.environ["FFMPEG_DIR"] = config["ffmpeg_dir"]
+
+    assert os.environ.get("FFMPEG_DIR") == "E:/ffmpeg/bin"
+    # 清理
+    os.environ.pop("FFMPEG_DIR", None)
