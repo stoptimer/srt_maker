@@ -1,4 +1,7 @@
 # tests/speech/test_whisper_recognizer.py
+import numpy as np
+import tempfile
+import wave
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -75,15 +78,63 @@ def test_whisper_transcribe_fp16_disabled():
     mock_whisper.load_model.return_value = mock_model
 
     with patch.dict('sys.modules', {'whisper': mock_whisper}):
-        recognizer = WhisperRecognizer(model_size="tiny")
-        recognizer._load_model()
+        with patch.object(WhisperRecognizer, '_load_audio_as_array') as mock_load:
+            import numpy as np
+            mock_load.return_value = np.zeros(16000, dtype=np.float32)
 
-        import asyncio
-        asyncio.run(recognizer.recognize("fake_audio.wav", "zh"))
+            recognizer = WhisperRecognizer(model_size="tiny")
+            recognizer._load_model()
 
-        # 验证 transcribe 被调用时 fp16=False 是直接的关键字参数
-        call_kwargs = mock_model.transcribe.call_args[1]
-        assert "fp16" in call_kwargs, "fp16 应该作为关键字参数直接传递"
-        assert call_kwargs["fp16"] is False, "fp16 应该为 False"
-        # 确保没有嵌套的 decode_options 字典
-        assert "decode_options" not in call_kwargs, "不应该有嵌套的 decode_options 字典"
+            import asyncio
+            asyncio.run(recognizer.recognize("fake_audio.wav", "zh"))
+
+            # 验证音频被加载为 NumPy 数组（而非文件路径传给 Whisper）
+            mock_load.assert_called_once_with("fake_audio.wav")
+
+            # 验证 transcribe 的第一个参数是 NumPy 数组而非文件路径
+            call_args = mock_model.transcribe.call_args[0]
+            assert isinstance(call_args[0], np.ndarray), "transcribe 应该接收 NumPy 数组而非文件路径"
+
+            # 验证 transcribe 被调用时 fp16=False 是直接的关键字参数
+            call_kwargs = mock_model.transcribe.call_args[1]
+            assert "fp16" in call_kwargs, "fp16 应该作为关键字参数直接传递"
+            assert call_kwargs["fp16"] is False, "fp16 应该为 False"
+            # 确保没有嵌套的 decode_options 字典
+            assert "decode_options" not in call_kwargs, "不应该有嵌套的 decode_options 字典"
+
+
+def test_load_audio_as_array():
+    """测试 _load_audio_as_array 将 WAV 文件正确加载为 NumPy 数组"""
+    # 创建一个测试 WAV 文件（16kHz 单声道 PCM 16-bit）
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        wav_path = f.name
+
+    try:
+        # 写入已知的音频数据
+        expected_data = np.sin(np.linspace(0, 2 * np.pi, 16000)).astype(np.float32)
+        int16_data = (expected_data * 32767).astype(np.int16)
+
+        with wave.open(wav_path, "w") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(16000)
+            wav_file.writeframes(int16_data.tobytes())
+
+        # 加载音频
+        audio = WhisperRecognizer._load_audio_as_array(wav_path)
+
+        # 验证类型和范围
+        assert isinstance(audio, np.ndarray)
+        assert audio.dtype == np.float32
+        assert audio.shape == (16000,)
+        assert audio.min() >= -1.0
+        assert audio.max() <= 1.0
+
+        # 验证数据正确性（int16 -> float32 归一化后的正弦波）
+        # expected_data 是 [-1, 1] 范围的 float32，写入 WAV 时 * 32767 转为 int16，
+        # 读取时 / 32768 归一化，所以期望值是 expected_data * 32767 / 32768
+        expected_normalized = expected_data * 32767.0 / 32768.0
+        np.testing.assert_array_almost_equal(audio, expected_normalized, decimal=3)
+    finally:
+        import os
+        os.unlink(wav_path)
