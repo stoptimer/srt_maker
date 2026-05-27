@@ -35,8 +35,7 @@ class WhisperRecognizer(SpeechRecognizer):
         # 显式禁用 FP16，避免在 CPU 上触发 Whisper 的 FP16 不支持警告
         def _transcribe():
             return self._model.transcribe(
-                audio_path, language=language, verbose=False,
-                decode_options={"fp16": False},
+                audio_path, language=language, verbose=False, fp16=False,
             )
 
         result = await asyncio.to_thread(_transcribe)
