@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from PySide6.QtCore import QObject, Signal
 from srt_maker.ui.burn_worker import BurnWorker
 
 
@@ -34,6 +33,30 @@ def test_burn_worker_emits_error_on_exception(qtbot):
 
     assert len(error_log) == 1
     assert "烧录失败" in error_log[0]
+
+
+def test_burn_worker_emits_progress_signals(qtbot):
+    """测试 BurnWorker 烧录过程发射进度信号"""
+    progress_log = []
+    worker = BurnWorker()
+    worker.progress.connect(lambda text, pct: progress_log.append((text, pct)))
+
+    with patch('srt_maker.ui.burn_worker.SubtitleBurner') as mock_burner_cls:
+        mock_burner = MagicMock()
+        mock_burner_cls.return_value = mock_burner
+
+        worker.burn(
+            video_path="video.mp4",
+            srt_path="sub.srt",
+            output_path="out.mp4",
+            font_name="微软雅黑",
+            font_size=24,
+            color="&H00FFFFFF",
+        )
+
+    assert len(progress_log) == 2
+    assert progress_log[0] == ("正在烧录字幕...", 0)
+    assert progress_log[1] == ("烧录完成", 100)
 
 
 def test_burn_worker_emits_finished_on_success(qtbot):
