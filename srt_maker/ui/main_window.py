@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QProgressBar,
 )
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QCloseEvent, QColor
 from srt_maker.ui.video_preview import VideoPreview
 from srt_maker.ui.recognition_worker import RecognitionWorker
 from srt_maker.ui.waveform_view import WaveformView
@@ -172,9 +172,9 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        burn_btn = QPushButton("烧录字幕")
-        burn_btn.clicked.connect(self._burn_subtitles)
-        toolbar.addWidget(burn_btn)
+        self._burn_btn = QPushButton("烧录字幕")
+        self._burn_btn.clicked.connect(self._burn_subtitles)
+        toolbar.addWidget(self._burn_btn)
 
         self.addToolBar(toolbar)
 
@@ -317,15 +317,29 @@ class MainWindow(QMainWindow):
         self._undo_action.setEnabled(True)
         self._redo_action.setEnabled(True)
 
+    def _enable_burn_ui(self):
+        """恢复烧录相关 UI 控件状态"""
+        self._burn_action.setEnabled(True)
+        self._burn_btn.setEnabled(True)
+        self._start_recognition_action.setEnabled(True)
+
     def _burn_subtitles(self):
         if self._burn_worker_thread is not None:
             QMessageBox.warning(self, "提示", "烧录已在进行中，请等待完成")
             return
+
+        # 立即禁用 UI 防止并发操作
+        self._burn_action.setEnabled(False)
+        self._burn_btn.setEnabled(False)
+        self._start_recognition_action.setEnabled(False)
+
         if not self._video_path:
             QMessageBox.warning(self, "提示", "请先打开视频文件")
+            self._enable_burn_ui()
             return
         if not self._subtitles.entries:
             QMessageBox.warning(self, "提示", "请先加载字幕")
+            self._enable_burn_ui()
             return
 
         # 检查 FFmpeg 是否可用
@@ -336,13 +350,15 @@ class MainWindow(QMainWindow):
                 "未找到 FFmpeg，请先安装 FFmpeg 并将其添加到系统 PATH 中，\n"
                 "或通过设置配置 FFmpeg 路径。"
             )
+            self._enable_burn_ui()
             return
 
         # 将字幕写入临时 SRT 文件
+        srt_content = write_srt(self._subtitles.entries)
         srt_fd, srt_path = tempfile.mkstemp(suffix=".srt", prefix="srt_maker_")
         try:
             with os.fdopen(srt_fd, "w", encoding="utf-8") as f:
-                f.write(write_srt(self._subtitles.entries))
+                f.write(srt_content)
         except Exception:
             os.unlink(srt_path)
             raise
@@ -363,6 +379,7 @@ class MainWindow(QMainWindow):
         )
         if not output_path:
             os.unlink(srt_path)
+            self._enable_burn_ui()
             return
 
         # 创建 worker 和线程
@@ -393,8 +410,6 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(True)
         self.progress.setMaximum(0)  # 不定长模式
         self.statusBar().showMessage("烧录中...")
-        self._burn_action.setEnabled(False)
-        self._start_recognition_action.setEnabled(False)
         self._burn_worker_thread.start()
 
     def _on_burn_progress(self, text: str, percentage: int):
@@ -473,6 +488,17 @@ class MainWindow(QMainWindow):
         else:
             self.log_container.setFixedHeight(0)
             self.log_container.setVisible(False)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """关闭窗口时清理烧录 worker 和临时文件"""
+        if self._burn_worker_thread is not None:
+            self._cleanup_burn_worker()
+        if self._burn_srt_path:
+            try:
+                os.unlink(self._burn_srt_path)
+            except OSError:
+                pass
+        super().closeEvent(event)
 
     def _show_settings(self):
         """显示设置对话框"""
