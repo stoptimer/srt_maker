@@ -3,13 +3,17 @@
 
 自动化流程：
 1. 检查 Python 版本
-2. 下载 FFmpeg 静态编译版本
-3. 运行 PyInstaller 打包
-4. 复制 FFmpeg 到打包输出目录
+2. 检查运行时依赖（PyTorch、Whisper）
+3. 下载 FFmpeg 静态编译版本
+4. 运行 PyInstaller 打包
+5. 复制 FFmpeg 到打包输出目录
+
+注意：PyTorch 和 Whisper 不作为打包依赖，由用户预先安装。
 """
 
+# 必须在所有 import 之前设置，避免 OpenMP DLL 冲突
 import os
-import platform
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import shutil
 import subprocess
 import sys
@@ -19,8 +23,13 @@ PROJECT_ROOT = Path(__file__).parent
 FFMPEG_BUILD_DIR = PROJECT_ROOT / "build" / "ffmpeg"
 DIST_DIR = PROJECT_ROOT / "dist" / "srt_maker"
 FFMPEG_URL = (
-    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-full.7z"
+    "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/"
+    "ffmpeg-master-latest-win64-gpl.zip"
 )
+
+# 运行时依赖（不打包进程序，需用户预先安装）
+RUNTIME_DEPENDENCIES = ["torch", "whisper"]
+
 
 def check_python_version() -> bool:
     """检查 Python 版本 >= 3.10"""
@@ -30,11 +39,32 @@ def check_python_version() -> bool:
     print(f"Python 版本: {sys.version}")
     return True
 
+
+def check_runtime_dependencies() -> bool:
+    """检查运行时依赖是否已安装
+
+    这些依赖不打包进程序，但运行时需要存在。
+    """
+    missing = []
+    for dep in RUNTIME_DEPENDENCIES:
+        try:
+            __import__(dep.replace("-", "_"))
+        except ImportError:
+            missing.append(dep)
+
+    if missing:
+        print(f"警告: 以下运行时依赖未安装: {', '.join(missing)}")
+        print("程序启动后语音识别功能将不可用。")
+        print(f"安装命令: pip install {' '.join(missing)}")
+        return False
+    print(f"运行时依赖已安装: {', '.join(RUNTIME_DEPENDENCIES)}")
+    return True
+
+
 def download_ffmpeg() -> Path:
     """下载 FFmpeg 静态编译版本
 
-    使用 FFmpeg 的 gyan.dev 预编译版本。
-    由于 7z 格式需要解压工具，这里使用 requests 下载并处理。
+    使用 FFmpeg-Builds 的 GitHub Releases zip 包。
 
     返回 FFmpeg 可执行文件所在目录。
     """
@@ -47,43 +77,29 @@ def download_ffmpeg() -> Path:
 
     try:
         import requests
+        import zipfile
 
-        # 尝试下载 gyan.dev 的 7z 包
+        # 下载 zip 包
         print(f"下载: {FFMPEG_URL}")
         response = requests.get(FFMPEG_URL, stream=True, timeout=300)
         response.raise_for_status()
 
-        archive_path = FFMPEG_BUILD_DIR / "ffmpeg.7z"
+        archive_path = FFMPEG_BUILD_DIR / "ffmpeg.zip"
         with open(archive_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
 
         print("正在解压 FFmpeg...")
-        # 尝试使用 7z 解压
-        try:
-            subprocess.run(
-                ["7z", "x", str(archive_path), f"-o{FFMPEG_BUILD_DIR}", "-y"],
-                check=True,
-                timeout=120,
-            )
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            # 尝试使用 Python 的 py7zr
-            try:
-                import py7zr
-                with py7zr.SevenZipFile(archive_path, "r") as archive:
-                    archive.extractall(FFMPEG_BUILD_DIR)
-            except ImportError:
-                print("警告: 无法解压 7z 文件。请手动下载 FFmpeg 并放到 build/ffmpeg/ 目录")
-                print("下载地址: https://www.gyan.dev/ffmpeg/builds/")
-                raise
+        with zipfile.ZipFile(archive_path) as zf:
+            zf.extractall(FFMPEG_BUILD_DIR)
 
         archive_path.unlink()
 
-        # 查找 ffmpeg.exe — gyan.dev 的目录结构为 ffmpeg-*/bin/
-        ffmpeg_exe = list(FFMPEG_BUILD_DIR.glob("**/ffmpeg.exe"))
-        if ffmpeg_exe:
-            # 如果解压到子目录，将可执行文件移到顶层
-            for exe in ffmpeg_exe:
+        # 查找可执行文件 — zip 包的目录结构为 ffmpeg-*/bin/
+        # 将 ffmpeg.exe 和 ffprobe.exe 移到顶层
+        for exe_name in ["ffmpeg.exe", "ffprobe.exe", "ffplay.exe"]:
+            exes = list(FFMPEG_BUILD_DIR.glob(f"**/{exe_name}"))
+            for exe in exes:
                 if exe.parent != FFMPEG_BUILD_DIR:
                     shutil.move(str(exe), FFMPEG_BUILD_DIR / exe.name)
 
@@ -97,8 +113,9 @@ def download_ffmpeg() -> Path:
     except Exception as e:
         print(f"下载 FFmpeg 失败: {e}")
         print("请手动下载 FFmpeg 并放到 build/ffmpeg/ 目录")
-        print("下载地址: https://www.gyan.dev/ffmpeg/builds/")
+        print("下载地址: https://github.com/BtbN/FFmpeg-Builds/releases")
         return FFMPEG_BUILD_DIR
+
 
 def run_pyinstaller() -> bool:
     """运行 PyInstaller 打包"""
@@ -113,6 +130,7 @@ def run_pyinstaller() -> bool:
     print("PyInstaller 打包完成")
     return True
 
+
 def copy_ffmpeg_to_dist() -> bool:
     """将 FFmpeg 复制到打包输出目录"""
     ffmpeg_exe = FFMPEG_BUILD_DIR / "ffmpeg.exe"
@@ -123,7 +141,7 @@ def copy_ffmpeg_to_dist() -> bool:
     dist_ffmpeg = DIST_DIR / "ffmpeg"
     dist_ffmpeg.mkdir(exist_ok=True)
 
-    for exe in ["ffmpeg.exe", "ffprobe.exe"]:
+    for exe in ["ffmpeg.exe", "ffprobe.exe", "ffplay.exe"]:
         src = FFMPEG_BUILD_DIR / exe
         dst = dist_ffmpeg / exe
         if src.exists():
@@ -131,6 +149,7 @@ def copy_ffmpeg_to_dist() -> bool:
             print(f"已复制: {exe}")
 
     return True
+
 
 def main():
     print("=" * 50)
@@ -141,21 +160,28 @@ def main():
     if not check_python_version():
         sys.exit(1)
 
-    # 2. 下载 FFmpeg
+    # 2. 检查运行时依赖
+    check_runtime_dependencies()
+
+    # 3. 下载 FFmpeg
     download_ffmpeg()
 
-    # 3. 运行 PyInstaller
+    # 4. 运行 PyInstaller
     if not run_pyinstaller():
         sys.exit(1)
 
-    # 4. 复制 FFmpeg
+    # 5. 复制 FFmpeg
     copy_ffmpeg_to_dist()
 
     print()
     print("=" * 50)
     print("构建完成!")
     print(f"输出目录: {DIST_DIR}")
+    print()
+    print("注意: 运行时需要安装以下依赖:")
+    print(f"  pip install {' '.join(RUNTIME_DEPENDENCIES)}")
     print("=" * 50)
+
 
 if __name__ == "__main__":
     main()
