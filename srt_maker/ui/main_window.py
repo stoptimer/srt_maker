@@ -10,6 +10,7 @@ from srt_maker.ui.recognition_worker import RecognitionWorker
 from srt_maker.ui.waveform_view import WaveformView
 from srt_maker.ui.subtitle_editor import SubtitleEditor
 from srt_maker.ui.style_panel import StylePanel
+from srt_maker.ui.log_viewer import LogViewer
 from srt_maker.core.subtitle_list import SubtitleList
 from srt_maker.io.srt_parser import write_srt
 
@@ -69,6 +70,15 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
+
+        # 日志面板（默认收起）
+        self.log_viewer = LogViewer()
+        self.log_container = QGroupBox("日志")
+        log_layout = QVBoxLayout(self.log_container)
+        log_layout.addWidget(self.log_viewer)
+        self.log_container.setFixedHeight(0)
+        self.log_container.setVisible(False)
+        layout.addWidget(self.log_container)
 
         # 状态栏
         self.statusBar().showMessage("就绪")
