@@ -21,6 +21,8 @@ desktop.ini
 
 # Claude Code
 .superpowers/
+.claude/
+.omc/
 
 # Environment
 .env
@@ -33,3 +35,6 @@ temp/
 # PyInstaller 输出
 *.spec
 !srt_maker.spec
+
+# Docs
+docs/
