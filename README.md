@@ -1,3 +1,141 @@
+# SRT Maker — Video Subtitle Generator & Burner
+
+Generate subtitles from video via AI speech recognition, edit them visually, and burn them into the final video.
+
+## Quick Start
+
+```bash
+# Clone and install
+git clone https://github.com/stoptimer/srt_maker.git
+cd srt_maker
+pip install -e "."
+
+# Run
+python -m srt_maker.main
+```
+
+## Requirements
+
+| Dependency | Description |
+|------------|-------------|
+| Python 3.10+ | Runtime |
+| FFmpeg | Required for audio extraction and subtitle burning |
+| CUDA (optional) | GPU acceleration for Whisper |
+
+### FFmpeg Configuration
+
+FFmpeg path resolved in this order:
+
+1. `ffmpeg_dir` configured in app settings
+2. `ffmpeg/` next to the executable (bundled with PyInstaller builds)
+3. `FFMPEG_DIR` environment variable
+4. System PATH
+
+If FFmpeg is not found, the app will prompt you to configure the path via settings.
+
+### GPU Acceleration (Optional)
+
+Install CUDA-enabled PyTorch for faster Whisper recognition:
+
+```bash
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+## Features
+
+- **Speech recognition**: Three engines — Whisper (local), qwen3-asr (llama.cpp local deployment), cloud API (Alibaba Cloud NLS)
+- **Subtitle editing**: Table editor with undo/redo, split/merge entries
+- **Waveform view**: Audio waveform visualization with subtitle interval highlights
+- **Video preview**: Play video with auto-highlight of current subtitle
+- **Subtitle burning**: Hardcode subtitles into video with customizable font, size, and color
+- **Import/Export**: Import SRT and ASS formats, export SRT
+
+## Using as a Library
+
+```python
+import asyncio
+from srt_maker.audio.extractor import AudioExtractor
+from srt_maker.speech.whisper_recognizer import WhisperRecognizer
+from srt_maker.io.srt_parser import write_srt
+from srt_maker.video.burner import SubtitleBurner
+
+async def main():
+    # 1. Extract audio
+    with AudioExtractor() as extractor:
+        audio_path = extractor.extract("input.mp4")
+
+        # 2. Speech recognition
+        recognizer = WhisperRecognizer(model="base")
+        subtitles = await recognizer.recognize(audio_path, "zh")
+
+    # 3. Export SRT
+    print(write_srt(subtitles.entries))
+
+    # 4. Burn subtitles
+    burner = SubtitleBurner()
+    burner.burn("input.mp4", "subtitle.srt", "output.mp4")
+
+asyncio.run(main())
+```
+
+See [Usage Guide](docs/usage.md) for more API examples.
+
+## Development
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest -v
+
+# Build standalone executable
+pyinstaller srt_maker.spec
+```
+
+## Tech Stack
+
+Python 3.10+ · PySide6 · OpenAI Whisper · qwen3-asr · FFmpeg · Silero VAD · PyQtGraph · OpenCV
+
+## Project Structure
+
+```
+srt_maker/
+├── main.py                # Entry point
+├── core/                  # Core business layer (UI-independent)
+│   ├── subtitle_model.py  # SubtitleEntry data class
+│   ├── subtitle_list.py   # SubtitleList with undo/redo
+│   ├── timecode.py        # Timecode utilities
+│   ├── config.py          # Configuration management
+│   └── logger.py          # Logging system
+├── speech/                # Speech recognition layer
+│   ├── base.py            # SpeechRecognizer abstract interface
+│   ├── whisper_recognizer.py
+│   ├── qwen_asr_recognizer.py
+│   └── cloud_recognizer.py
+├── video/                 # Video processing layer
+│   ├── ffmpeg_wrapper.py  # FFmpeg wrapper
+│   └── burner.py          # Subtitle burning
+├── audio/                 # Audio processing layer
+│   ├── extractor.py       # Audio extraction
+│   └── vad.py             # VAD speech activity detection
+├── io/                    # File I/O layer
+│   ├── srt_parser.py      # SRT read/write
+│   └── ass_parser.py      # ASS reading
+└── ui/                    # UI layer
+    ├── main_window.py     # Main window
+    ├── video_preview.py   # Video preview
+    ├── waveform_view.py   # Waveform display
+    ├── subtitle_editor.py # Subtitle editor
+    ├── style_panel.py     # Style panel
+    ├── recognition_worker.py
+    ├── burn_worker.py
+    ├── settings_dialog.py
+    └── log_viewer.py
+```
+
+---
+
 # SRT Maker — 视频字幕生成与烧录工具
 
 从视频中通过 AI 语音识别自动生成字幕，支持可视化编辑和硬编码烧录。
@@ -24,7 +162,7 @@ python -m srt_maker.main
 
 ### FFmpeg 配置
 
-路径按以下优先级解析：
+FFmpeg 路径按以下优先级解析：
 
 1. 程序设置中配置的 `ffmpeg_dir`
 2. 打包目录下的 `ffmpeg/`（PyInstaller 打包后自动附带）
