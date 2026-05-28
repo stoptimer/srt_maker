@@ -1,10 +1,25 @@
 import subprocess
 import os
+import sys
 import tempfile
 from pathlib import Path
 
 # 默认 FFmpeg 路径（可通过环境变量或构造参数覆盖）
 _DEFAULT_FFMPEG_DIR = os.environ.get("FFMPEG_DIR", "")
+
+def _bundled_ffmpeg_dir() -> str:
+    """获取打包目录下的 FFmpeg 路径
+
+    PyInstaller 打包后，_MEIPASS 指向 _internal/ 目录。
+    打包目录下的 ffmpeg/ 位于 _MEIPASS 的父目录。
+    开发环境下 _MEIPASS 不存在，返回空字符串。
+    """
+    if not hasattr(sys, "_MEIPASS"):
+        return ""
+    bundled = Path(sys._MEIPASS) / ".." / "ffmpeg"
+    if (bundled / "ffmpeg.exe").exists():
+        return str(bundled)
+    return ""
 
 class FFmpegWrapper:
     """FFmpeg 命令行封装"""
@@ -17,7 +32,22 @@ class FFmpegWrapper:
             ffmpeg_dir: FFmpeg 可执行文件所在目录，默认从 FFMPEG_DIR 环境变量读取，
                         若为空则从 PATH 中查找
         """
-        self._ffmpeg_dir = ffmpeg_dir or _DEFAULT_FFMPEG_DIR
+        self._ffmpeg_dir = self._resolve_ffmpeg_dir(ffmpeg_dir)
+
+    @staticmethod
+    def _resolve_ffmpeg_dir(explicit_dir: str) -> str:
+        """解析 FFmpeg 目录，按优先级查找
+
+        优先级：显式参数 > 打包目录 > 环境变量 > 空（从 PATH 查找）
+        """
+        if explicit_dir:
+            return explicit_dir
+        bundled = _bundled_ffmpeg_dir()
+        if bundled:
+            return bundled
+        if _DEFAULT_FFMPEG_DIR:
+            return _DEFAULT_FFMPEG_DIR
+        return ""
 
     def _ffmpeg_cmd(self) -> str:
         """返回 ffmpeg 可执行文件路径"""
