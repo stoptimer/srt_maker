@@ -4,6 +4,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from srt_maker.core.subtitle_model import SubtitleEntry
+
 # 默认 FFmpeg 路径（可通过环境变量或构造参数覆盖）
 _DEFAULT_FFMPEG_DIR = os.environ.get("FFMPEG_DIR", "")
 
@@ -22,13 +24,16 @@ def _bundled_ffmpeg_dir() -> str:
     return ""
 
 def _split_long_subtitles(
-    entries: list,
+    entries: list[SubtitleEntry],
     max_chars_per_line: int = 40,
-) -> list:
+) -> list[SubtitleEntry]:
     """拆分超长字幕条目，避免 libass 自动换行导致第二行被裁剪
 
     将超过 max_chars_per_line 字符的字幕按空格拆分为多条，
     每条平分原始时间区间，依次播放。
+
+    如果拆分后单条时长低于 _MIN_SPLIT_DURATION 秒，则放弃拆分，
+    避免产生不可读的闪烁字幕。
 
     Args:
         entries: 字幕条目列表
@@ -37,7 +42,7 @@ def _split_long_subtitles(
     Returns:
         拆分后的字幕条目列表
     """
-    from srt_maker.core.subtitle_model import SubtitleEntry
+    _MIN_SPLIT_DURATION = 0.3  # 单条最低时长，低于此值不拆分
 
     result = []
     for entry in entries:
@@ -50,12 +55,13 @@ def _split_long_subtitles(
         remaining = entry.text
         while remaining:
             cut = min(max_chars_per_line, len(remaining))
-            # 尝试在空格处断开
+            # 尝试在空格处断开：如果 cut 前半段有空格，优先在空格处断开
             if cut < len(remaining):
                 space = remaining.rfind(" ", 0, cut)
                 if space >= cut // 2:
                     cut = space
                 else:
+                    # 否则尝试在 cut 后找空格，允许超出 50%
                     space = remaining.find(" ", cut)
                     if space >= 0 and space <= cut * 1.5:
                         cut = space
@@ -65,6 +71,12 @@ def _split_long_subtitles(
         # 每条平分原始时间区间
         duration = entry.end_time - entry.start_time
         per_duration = duration / len(lines)
+
+        # 如果拆分后单条时长太短，放弃拆分
+        if per_duration < _MIN_SPLIT_DURATION:
+            result.append(entry)
+            continue
+
         for i, line in enumerate(lines):
             start = entry.start_time + per_duration * i
             end = entry.start_time + per_duration * (i + 1)

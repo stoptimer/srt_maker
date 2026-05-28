@@ -156,3 +156,25 @@ def test_split_long_subtitles_breaks_at_word_boundaries():
         parts = e.text.split()
         for part in parts:
             assert part in long_text.split()
+
+
+def test_split_long_subtitles_no_split_on_short_duration():
+    """拆分后单条时长低于 0.3s 时不拆分"""
+    long_text = "This is a very very long subtitle that would normally wrap and get clipped"
+    entries = [SubtitleEntry(0.0, 0.5, long_text)]  # 仅 0.5s，拆分后每条 < 0.3s
+    result = _split_long_subtitles(entries)
+    # 不拆分，保持原样
+    assert len(result) == 1
+    assert result[0].text == long_text
+
+
+def test_split_long_subtitles_long_word_no_spaces():
+    """超长无空格文本（如 URL）能被硬拆分"""
+    long_url = "https://example.com/very/very/long/path/that/exceeds/forty/chars"
+    entries = [SubtitleEntry(0.0, 6.0, long_url)]
+    result = _split_long_subtitles(entries)
+    # 即使硬拆分也不会无限循环
+    assert len(result) > 1
+    # 拆分后拼接回原文
+    combined = "".join(e.text for e in result)
+    assert combined == long_url
