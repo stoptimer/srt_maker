@@ -10,6 +10,8 @@ except ImportError:
 
 from PySide6.QtWidgets import QApplication
 from srt_maker.core.config import load_config
+from srt_maker.core.logger import setup_logging
+from srt_maker.ui.log_bridge import LogEmitter, connect_log_to_ui
 from srt_maker.ui.main_window import MainWindow
 
 def main():
@@ -20,7 +22,19 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+
+    # 初始化日志（文件 + 控制台）
+    setup_logging()
+
+    # 连接日志到 UI
+    emitter = LogEmitter()
     window = MainWindow()
+    log_handler = connect_log_to_ui(emitter)
+
+    # 连接日志信号到主窗口的日志面板
+    if hasattr(window, 'log_viewer'):
+        emitter.log.connect(window.log_viewer.append_log)
+
     window.show()
     sys.exit(app.exec())
 
