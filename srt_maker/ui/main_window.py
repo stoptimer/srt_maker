@@ -39,6 +39,7 @@ class MainWindow(QMainWindow):
         self._worker_thread: QThread | None = None
         self._burn_worker: "BurnWorker" | None = None
         self._burn_worker_thread: QThread | None = None
+        self._burn_srt_path: str | None = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -125,8 +126,8 @@ class MainWindow(QMainWindow):
         self._start_recognition_action.triggered.connect(self._start_recognition)
 
         burn_menu = menu_bar.addMenu("烧录")
-        burn_action = burn_menu.addAction("烧录字幕")
-        burn_action.triggered.connect(self._burn_subtitles)
+        self._burn_action = burn_menu.addAction("烧录字幕")
+        self._burn_action.triggered.connect(self._burn_subtitles)
 
         # 视图菜单
         view_menu = menu_bar.addMenu("视图")
@@ -317,6 +318,9 @@ class MainWindow(QMainWindow):
         self._redo_action.setEnabled(True)
 
     def _burn_subtitles(self):
+        if self._burn_worker_thread is not None:
+            QMessageBox.warning(self, "提示", "烧录已在进行中，请等待完成")
+            return
         if not self._video_path:
             QMessageBox.warning(self, "提示", "请先打开视频文件")
             return
@@ -389,6 +393,8 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(True)
         self.progress.setMaximum(0)  # 不定长模式
         self.statusBar().showMessage("烧录中...")
+        self._burn_action.setEnabled(False)
+        self._start_recognition_action.setEnabled(False)
         self._burn_worker_thread.start()
 
     def _on_burn_progress(self, text: str, percentage: int):
@@ -399,11 +405,12 @@ class MainWindow(QMainWindow):
     def _on_burn_finished(self):
         """烧录完成"""
         # 清理临时 SRT 文件
-        if hasattr(self, '_burn_srt_path') and self._burn_srt_path:
+        if self._burn_srt_path:
             try:
                 os.unlink(self._burn_srt_path)
             except OSError:
                 pass
+            self._burn_srt_path = None
 
         self.statusBar().showMessage("烧录完成")
         self._cleanup_burn_worker()
@@ -411,11 +418,12 @@ class MainWindow(QMainWindow):
     def _on_burn_error(self, message: str):
         """烧录失败"""
         # 清理临时 SRT 文件
-        if hasattr(self, '_burn_srt_path') and self._burn_srt_path:
+        if self._burn_srt_path:
             try:
                 os.unlink(self._burn_srt_path)
             except OSError:
                 pass
+            self._burn_srt_path = None
 
         QMessageBox.critical(self, "烧录失败", message)
         self._cleanup_burn_worker()
@@ -435,6 +443,8 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(False)
         self.progress.setMaximum(100)  # 恢复定长模式
         self.progress.setValue(0)
+        self._burn_action.setEnabled(True)
+        self._start_recognition_action.setEnabled(True)
 
     def _on_subtitle_selected(self, row: int):
         if row >= 0 and row < len(self._subtitles.entries):
