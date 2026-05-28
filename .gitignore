@@ -29,3 +29,6 @@ desktop.ini
 # Temp
 *.tmp
 temp/
+
+# PyInstaller 输出
+*.spec
