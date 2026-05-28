@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QProgressBar,
 )
 from PySide6.QtCore import Qt, QThread
+from PySide6.QtGui import QColor
 from srt_maker.ui.video_preview import VideoPreview
 from srt_maker.ui.recognition_worker import RecognitionWorker
 from srt_maker.ui.waveform_view import WaveformView
@@ -13,6 +14,11 @@ from srt_maker.ui.style_panel import StylePanel
 from srt_maker.ui.log_viewer import LogViewer
 from srt_maker.core.subtitle_list import SubtitleList
 from srt_maker.io.srt_parser import write_srt
+
+
+def _qcolor_to_ffmpeg_color(color: QColor) -> str:
+    """QColor 转 FFmpeg 颜色格式 &H00RRGGBB（BGR 字节序）"""
+    return f"&H00{color.blue():02X}{color.green():02X}{color.red():02X}"
 
 
 class MainWindow(QMainWindow):
@@ -115,6 +121,14 @@ class MainWindow(QMainWindow):
         burn_action = burn_menu.addAction("烧录字幕")
         burn_action.triggered.connect(self._burn_subtitles)
 
+        # 视图菜单
+        view_menu = menu_bar.addMenu("视图")
+        self._toggle_log_action = view_menu.addAction("显示日志面板")
+        self._toggle_log_action.setCheckable(True)
+        self._toggle_log_action.setChecked(False)
+        self._toggle_log_action.setShortcut("Ctrl+Shift+L")
+        self._toggle_log_action.toggled.connect(self._toggle_log_panel)
+
         # 设置菜单
         settings_menu = menu_bar.addMenu("设置")
         settings_action = settings_menu.addAction("设置")
@@ -142,6 +156,11 @@ class MainWindow(QMainWindow):
         self._language_combo.addItems(["中文", "英文", "自动"])
         toolbar.addWidget(QLabel("语言:"))
         toolbar.addWidget(self._language_combo)
+
+        self._device_combo = QComboBox()
+        self._device_combo.addItems(["自动", "GPU (CUDA)", "CPU"])
+        toolbar.addWidget(QLabel("设备:"))
+        toolbar.addWidget(self._device_combo)
 
         toolbar.addSeparator()
 
@@ -219,6 +238,7 @@ class MainWindow(QMainWindow):
         language_map = {"中文": "zh", "英文": "en", "自动": "auto"}
         language = language_map.get(self._language_combo.currentText(), "auto")
         model_size = self._model_size_combo.currentText()
+        device = self._device_combo.currentText()
 
         # 创建 worker 和线程
         self._worker = RecognitionWorker()
@@ -229,7 +249,7 @@ class MainWindow(QMainWindow):
         # 连接信号
         self._worker_thread.started.connect(
             lambda: self._worker.start(
-                self._video_path, recognizer_type, language, model_size
+                self._video_path, recognizer_type, language, model_size, device
             )
         )
         self._worker.progress.connect(self._on_recognition_progress)
@@ -316,6 +336,15 @@ class MainWindow(QMainWindow):
         self._subtitles.redo()
         self._undo_action.setEnabled(self._subtitles.can_undo())
         self._redo_action.setEnabled(self._subtitles.can_redo())
+
+    def _toggle_log_panel(self, visible: bool):
+        """切换日志面板可见性"""
+        if visible:
+            self.log_container.setVisible(True)
+            self.log_container.setFixedHeight(200)
+        else:
+            self.log_container.setFixedHeight(0)
+            self.log_container.setVisible(False)
 
     def _show_settings(self):
         """显示设置对话框"""

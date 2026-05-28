@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch, MagicMock
+from PySide6.QtGui import QColor
 from srt_maker.ui.burn_worker import BurnWorker
+from srt_maker.ui.main_window import _qcolor_to_ffmpeg_color
 
 
 def test_burn_worker_has_signals():
@@ -87,3 +89,15 @@ def test_burn_worker_emits_finished_on_success(qtbot):
         font_size=24,
         color="&H00FFFFFF",
     )
+
+
+def test_qcolor_to_ffmpeg_color():
+    """测试 QColor 转 FFmpeg 颜色格式"""
+    # 白色
+    assert _qcolor_to_ffmpeg_color(QColor(255, 255, 255)) == "&H00FFFFFF"
+
+    # 红色 (R=255, G=0, B=0 → BGR: 0000FF)
+    assert _qcolor_to_ffmpeg_color(QColor(255, 0, 0)) == "&H000000FF"
+
+    # 黄色 (R=255, G=255, B=0 → BGR: 00FFFF)
+    assert _qcolor_to_ffmpeg_color(QColor(255, 255, 0)) == "&H0000FFFF"
