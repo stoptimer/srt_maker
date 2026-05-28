@@ -1,8 +1,15 @@
-import pytest
+import os
+import tempfile
 from unittest.mock import patch, MagicMock
+
+import pytest
 from PySide6.QtGui import QColor
+
 from srt_maker.ui.burn_worker import BurnWorker
 from srt_maker.ui.main_window import _qcolor_to_ffmpeg_color
+from srt_maker.video.ffmpeg_wrapper import FFmpegWrapper
+from srt_maker.core.subtitle_model import SubtitleEntry
+from srt_maker.io.srt_parser import write_srt
 
 
 def test_burn_worker_has_signals():
@@ -101,3 +108,43 @@ def test_qcolor_to_ffmpeg_color():
 
     # 黄色 (R=255, G=255, B=0 → BGR: 00FFFF)
     assert _qcolor_to_ffmpeg_color(QColor(255, 255, 0)) == "&H0000FFFF"
+
+
+@pytest.mark.skipif(
+    not FFmpegWrapper().is_available(),
+    reason="FFmpeg 未安装",
+)
+def test_burn_worker_integration(qtbot):
+    """测试 BurnWorker 端到端烧录流程"""
+    wrapper = FFmpegWrapper()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        video_path = os.path.join(tmp_dir, "input.mp4")
+        wrapper.create_test_video(video_path, duration=3.0)
+
+        srt_path = os.path.join(tmp_dir, "sub.srt")
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write(write_srt([SubtitleEntry(0.5, 1.5, "测试字幕")]))
+
+        output_path = os.path.join(tmp_dir, "output.mp4")
+
+        finished_log = []
+        error_log = []
+        worker = BurnWorker()
+        worker.finished.connect(lambda: finished_log.append(True))
+        worker.error.connect(error_log.append)
+
+        # 直接调用 burn（非异步，测试中不需要 QThread）
+        worker.burn(
+            video_path=video_path,
+            srt_path=srt_path,
+            output_path=output_path,
+            font_name="微软雅黑",
+            font_size=24,
+            color="&H00FFFFFF",
+        )
+
+        assert len(finished_log) == 1
+        assert len(error_log) == 0
+        assert os.path.exists(output_path)
+        assert os.path.getsize(output_path) > 0
