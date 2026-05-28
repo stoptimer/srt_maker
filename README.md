@@ -1,16 +1,18 @@
-# SRT Maker — Video Subtitle Generator & Burner
+# SRT Maker
+
+[English](#srt-maker) | [中文](#srt-maker--视频字幕生成与烧录工具)
+
+---
 
 Generate subtitles from video via AI speech recognition, edit them visually, and burn them into the final video.
 
 ## Quick Start
 
 ```bash
-# Clone and install
 git clone https://github.com/stoptimer/srt_maker.git
 cd srt_maker
 pip install -e "."
 
-# Run
 python -m srt_maker.main
 ```
 
@@ -60,18 +62,14 @@ from srt_maker.io.srt_parser import write_srt
 from srt_maker.video.burner import SubtitleBurner
 
 async def main():
-    # 1. Extract audio
     with AudioExtractor() as extractor:
         audio_path = extractor.extract("input.mp4")
 
-        # 2. Speech recognition
         recognizer = WhisperRecognizer(model="base")
         subtitles = await recognizer.recognize(audio_path, "zh")
 
-    # 3. Export SRT
     print(write_srt(subtitles.entries))
 
-    # 4. Burn subtitles
     burner = SubtitleBurner()
     burner.burn("input.mp4", "subtitle.srt", "output.mp4")
 
@@ -83,13 +81,8 @@ See [Usage Guide](docs/usage.md) for more API examples.
 ## Development
 
 ```bash
-# Install dev dependencies
 pip install -e ".[dev]"
-
-# Run tests
 pytest -v
-
-# Build standalone executable
 pyinstaller srt_maker.spec
 ```
 
@@ -143,12 +136,10 @@ srt_maker/
 ## 快速开始
 
 ```bash
-# 克隆并安装
 git clone https://github.com/stoptimer/srt_maker.git
 cd srt_maker
 pip install -e "."
 
-# 运行
 python -m srt_maker.main
 ```
 
@@ -198,18 +189,14 @@ from srt_maker.io.srt_parser import write_srt
 from srt_maker.video.burner import SubtitleBurner
 
 async def main():
-    # 1. 提取音频
     with AudioExtractor() as extractor:
         audio_path = extractor.extract("input.mp4")
 
-        # 2. 语音识别
         recognizer = WhisperRecognizer(model="base")
         subtitles = await recognizer.recognize(audio_path, "zh")
 
-    # 3. 导出 SRT
     print(write_srt(subtitles.entries))
 
-    # 4. 烧录字幕
     burner = SubtitleBurner()
     burner.burn("input.mp4", "subtitle.srt", "output.mp4")
 
@@ -221,13 +208,8 @@ asyncio.run(main())
 ## 开发
 
 ```bash
-# 安装开发依赖
 pip install -e ".[dev]"
-
-# 运行测试
 pytest -v
-
-# 打包为独立可执行文件
 pyinstaller srt_maker.spec
 ```
 
