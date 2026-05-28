@@ -11,6 +11,13 @@ class SpeechRecognizer(ABC):
     并实现 recognize 和 name 方法。
     """
 
+    def device_info(self) -> str | None:
+        """返回设备信息字符串（如 "GPU (CUDA)"、"CPU"），或 None 表示不适用。
+
+        子类可重写此方法以提供设备信息。默认返回 None。
+        """
+        return None
+
     @abstractmethod
     async def recognize(self, audio_path: str, language: str) -> SubtitleList:
         """识别音频并返回字幕列表

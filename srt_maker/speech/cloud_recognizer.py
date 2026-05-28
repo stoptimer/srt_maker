@@ -1,4 +1,6 @@
 # srt_maker/speech/cloud_recognizer.py
+import asyncio
+
 import requests
 
 from srt_maker.speech.base import SpeechRecognizer
@@ -24,17 +26,19 @@ class CloudSpeechRecognizer(SpeechRecognizer):
         """识别音频并返回字幕列表"""
         subtitles = SubtitleList()
 
-        with open(audio_path, "rb") as f:
-            response = requests.post(
-                self._api_url,
-                headers={"Authorization": self._api_key},
-                files={"audio": ("audio.wav", f, "audio/wav")},
-                data={"language": language},
-                timeout=300,
-            )
+        def _post() -> dict:
+            with open(audio_path, "rb") as f:
+                response = requests.post(
+                    self._api_url,
+                    headers={"Authorization": self._api_key},
+                    files={"audio": ("audio.wav", f, "audio/wav")},
+                    data={"language": language},
+                    timeout=300,
+                )
+            response.raise_for_status()
+            return response.json()
 
-        response.raise_for_status()
-        data = response.json()
+        data = await asyncio.to_thread(_post)
 
         for item in data.get("results", []):
             try:

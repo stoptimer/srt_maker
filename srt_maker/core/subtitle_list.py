@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Callable
+
 from srt_maker.core.subtitle_model import SubtitleEntry
 
 
@@ -7,10 +9,10 @@ class _UndoStack:
     """支持撤销/重做的命令栈"""
 
     def __init__(self) -> None:
-        self._undo: list[tuple[callable, callable]] = []
-        self._redo: list[tuple[callable, callable]] = []
+        self._undo: list[tuple[Callable[[], None], Callable[[], None]]] = []
+        self._redo: list[tuple[Callable[[], None], Callable[[], None]]] = []
 
-    def execute(self, action: callable, undo_action: callable) -> None:
+    def execute(self, action: Callable[[], None], undo_action: Callable[[], None]) -> None:
         """执行一个操作并记录其撤销动作"""
         action()
         self._undo.append((action, undo_action))
@@ -41,6 +43,21 @@ class SubtitleList:
         self._history = _UndoStack()
 
     # ---- 基本操作 ----
+
+    def replace(self, entries: list[SubtitleEntry]) -> None:
+        """替换整个字幕列表（用于导入操作，支持撤销）"""
+        old_entries = list(self.entries)
+        new_entries = list(entries)
+        self._history.execute(
+            action=lambda: (
+                self.entries.clear(),
+                self.entries.extend(new_entries),
+            ),
+            undo_action=lambda: (
+                self.entries.clear(),
+                self.entries.extend(old_entries),
+            ),
+        )
 
     def add(self, entry: SubtitleEntry) -> None:
         """添加字幕条目"""
@@ -100,6 +117,14 @@ class SubtitleList:
         )
 
     # ---- 撤销/重做 ----
+
+    def can_undo(self) -> bool:
+        """返回是否可以撤销"""
+        return len(self._history._undo) > 0
+
+    def can_redo(self) -> bool:
+        """返回是否可以重做"""
+        return len(self._history._redo) > 0
 
     def undo(self) -> None:
         """撤销上一次操作"""

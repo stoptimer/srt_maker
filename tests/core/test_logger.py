@@ -10,9 +10,11 @@ def test_setup_logging_creates_file():
     with tempfile.TemporaryDirectory() as tmpdir:
         import srt_maker.core.logger as logger_mod
         original = logger_mod._CONFIG_DIR
+        original_initialized = logger_mod._initialized
         try:
             logger_mod._CONFIG_DIR = Path(tmpdir) / ".srt_maker"
             logger_mod._LOG_FILE = logger_mod._CONFIG_DIR / "srt_maker.log"
+            logger_mod._initialized = False
 
             root = logging.getLogger()
             for h in root.handlers[:]:
@@ -25,6 +27,7 @@ def test_setup_logging_creates_file():
             assert logger_mod._CONFIG_DIR.exists(), "配置目录应该被创建"
         finally:
             logger_mod._CONFIG_DIR = original
+            logger_mod._initialized = original_initialized
             root = logging.getLogger()
             for h in root.handlers[:]:
                 root.removeHandler(h)
@@ -42,9 +45,11 @@ def test_setup_logging_writes_log():
         import srt_maker.core.logger as logger_mod
         original_dir = logger_mod._CONFIG_DIR
         original_file = logger_mod._LOG_FILE
+        original_initialized = logger_mod._initialized
         try:
             logger_mod._CONFIG_DIR = Path(tmpdir) / ".srt_maker"
             logger_mod._LOG_FILE = logger_mod._CONFIG_DIR / "srt_maker.log"
+            logger_mod._initialized = False
 
             root = logging.getLogger()
             for h in root.handlers[:]:
@@ -61,6 +66,42 @@ def test_setup_logging_writes_log():
         finally:
             logger_mod._CONFIG_DIR = original_dir
             logger_mod._LOG_FILE = original_file
+            logger_mod._initialized = original_initialized
+            root = logging.getLogger()
+            for h in root.handlers[:]:
+                root.removeHandler(h)
+
+
+def test_setup_logging_idempotent():
+    """测试 setup_logging 幂等性——重复调用不添加重复 Handler"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        import srt_maker.core.logger as logger_mod
+        original_initialized = logger_mod._initialized
+        original_dir = logger_mod._CONFIG_DIR
+        try:
+            logger_mod._CONFIG_DIR = Path(tmpdir) / ".srt_maker"
+            logger_mod._LOG_FILE = logger_mod._CONFIG_DIR / "srt_maker.log"
+            logger_mod._initialized = False
+
+            root = logging.getLogger()
+            for h in root.handlers[:]:
+                root.removeHandler(h)
+
+            handler_count_before = len(root.handlers)
+            setup_logging()
+            handler_count_after_first = len(root.handlers)
+
+            # 第二次调用不应添加新 Handler
+            setup_logging()
+            handler_count_after_second = len(root.handlers)
+
+            assert handler_count_after_first == handler_count_after_second, \
+                "第二次 setup_logging 不应添加新的 Handler"
+            assert handler_count_after_first > handler_count_before, \
+                "第一次 setup_logging 应添加 Handler"
+        finally:
+            logger_mod._initialized = original_initialized
+            logger_mod._CONFIG_DIR = original_dir
             root = logging.getLogger()
             for h in root.handlers[:]:
                 root.removeHandler(h)

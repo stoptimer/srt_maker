@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -40,6 +39,7 @@ class RecognitionWorker(QObject):
         recognizer_type: str,
         language: str,
         model_size: str = "base",
+        device: str = "auto",
     ) -> None:
         """执行识别流程
 
@@ -48,13 +48,14 @@ class RecognitionWorker(QObject):
             recognizer_type: 识别器类型 ("Whisper", "qwen3-asr", "云端API")
             language: 语言代码 ("zh", "en", "auto")
             model_size: Whisper 模型大小（仅 Whisper 使用）
+            device: 设备选择 ("auto", "GPU (CUDA)", "CPU")
         """
         extractor = None
         try:
             logger.info("=== 识别流程开始 ===")
             logger.info("视频: %s", video_path)
-            logger.info("识别器: %s, 模型: %s, 语言: %s",
-                        recognizer_type, model_size, language)
+            logger.info("识别器: %s, 模型: %s, 语言: %s, 设备: %s",
+                        recognizer_type, model_size, language, device)
 
             # 1. 提取音频
             self.progress.emit("正在提取音频...", 10)
@@ -66,15 +67,11 @@ class RecognitionWorker(QObject):
 
             # 2. 创建识别器
             self.progress.emit("正在加载模型...", 20)
-            recognizer = self._create_recognizer(recognizer_type, model_size)
+            recognizer = self._create_recognizer(recognizer_type, model_size, device)
 
-            # 预加载模型以获取设备信息
-            if hasattr(recognizer, '_load_model'):
-                recognizer._load_model()
-
-            device = getattr(recognizer, '_device', None)
-            if device:
-                device_text = "GPU (CUDA)" if device == "cuda" else "CPU"
+            # 获取设备信息
+            device_text = recognizer.device_info()
+            if device_text:
                 self.progress.emit(f"使用 {device_text}", 25)
                 logger.info("识别设备: %s", device_text)
 
@@ -101,12 +98,14 @@ class RecognitionWorker(QObject):
         self,
         recognizer_type: str,
         model_size: str,
+        device: str,
     ) -> "SpeechRecognizer":
         """根据类型创建识别器实例
 
         Args:
             recognizer_type: 识别器类型
             model_size: Whisper 模型大小
+            device: 设备选择
 
         Returns:
             识别器实例
@@ -115,7 +114,7 @@ class RecognitionWorker(QObject):
             ValueError: 未知的识别器类型
         """
         if recognizer_type == "Whisper":
-            return WhisperRecognizer(model_size=model_size)
+            return WhisperRecognizer(model_size=model_size, device=device)
         elif recognizer_type == "qwen3-asr":
             return QwenASRRecognizer()
         elif recognizer_type == "云端API":

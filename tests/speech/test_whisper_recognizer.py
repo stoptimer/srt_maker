@@ -1,6 +1,7 @@
 # tests/speech/test_whisper_recognizer.py
 import numpy as np
 import tempfile
+import threading
 import wave
 import pytest
 from unittest.mock import patch, MagicMock
@@ -214,6 +215,207 @@ def test_whisper_model_cache_preserves_device():
         r2._load_model()
         assert r2._device == "cuda"
 
+        assert mock_whisper.load_model.call_count == 1
+
+
+def test_whisper_device_info_gpu():
+    """测试 device_info() 返回 GPU (CUDA) 当 GPU 可用"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny")
+        device_text = recognizer.device_info()
+        assert device_text == "GPU (CUDA)"
+
+
+def test_whisper_device_info_cpu():
+    """测试 device_info() 返回 CPU 当 GPU 不可用"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = False
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny")
+        device_text = recognizer.device_info()
+        assert device_text == "CPU"
+
+
+def test_whisper_model_cache_thread_safety():
+    """测试模型缓存使用双重检查锁定——并发加载同一模型只加载一次"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = False
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        results = []
+
+        def load_in_thread():
+            r = WhisperRecognizer(model_size="tiny")
+            r._load_model()
+            results.append(r._model)
+
+        threads = [threading.Thread(target=load_in_thread) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # 所有线程应获得同一模型实例
+        assert len(set(id(r) for r in results)) == 1, "所有线程应获得同一模型实例"
+        # 模型只加载了一次
+        assert mock_whisper.load_model.call_count == 1, "模型应只加载一次"
+
+
+def test_whisper_device_auto_gpu():
+    """测试 device="auto" 且 GPU 可用时选择 CUDA"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny", device="auto")
+        recognizer._load_model()
+
+        mock_whisper.load_model.assert_called_once_with("tiny", device="cuda")
+        assert recognizer._device == "cuda"
+
+
+def test_whisper_device_auto_cpu():
+    """测试 device="auto" 且 GPU 不可用时选择 CPU"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = False
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny", device="auto")
+        recognizer._load_model()
+
+        mock_whisper.load_model.assert_called_once_with("tiny", device="cpu")
+        assert recognizer._device == "cpu"
+
+
+def test_whisper_device_force_gpu():
+    """测试 device="GPU (CUDA)" 强制使用 GPU"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny", device="GPU (CUDA)")
+        recognizer._load_model()
+
+        mock_whisper.load_model.assert_called_once_with("tiny", device="cuda")
+        assert recognizer._device == "cuda"
+
+
+def test_whisper_device_force_gpu_unavailable():
+    """测试 device="GPU (CUDA)" 但 GPU 不可用时回退 CPU"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = False
+    mock_torch.__version__ = "2.0.0+cpu"
+    mock_torch.version.cuda = None  # CPU 版本没有 CUDA
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny", device="GPU (CUDA)")
+        recognizer._load_model()
+
+        # 回退到 CPU
+        mock_whisper.load_model.assert_called_once_with("tiny", device="cpu")
+        assert recognizer._device == "cpu"
+
+
+def test_whisper_device_force_cpu():
+    """测试 device="CPU" 强制使用 CPU（即使 GPU 可用）"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny", device="CPU")
+        recognizer._load_model()
+
+        mock_whisper.load_model.assert_called_once_with("tiny", device="cpu")
+        assert recognizer._device == "cpu"
+
+
+def test_whisper_cache_different_devices():
+    """测试相同 model_size 不同 device 缓存为不同条目"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_gpu_model = MagicMock()
+    mock_cpu_model = MagicMock()
+    mock_whisper.load_model.side_effect = [mock_gpu_model, mock_cpu_model]
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        r_gpu = WhisperRecognizer(model_size="tiny", device="GPU (CUDA)")
+        r_cpu = WhisperRecognizer(model_size="tiny", device="CPU")
+
+        r_gpu._load_model()
+        r_cpu._load_model()
+
+        assert r_gpu._model is mock_gpu_model
+        assert r_cpu._model is mock_cpu_model
+        assert r_gpu._device == "cuda"
+        assert r_cpu._device == "cpu"
+        assert mock_whisper.load_model.call_count == 2
+
+
+def test_whisper_cache_same_model_size_and_device():
+    """测试相同 model_size 和 device 共享缓存"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        r1 = WhisperRecognizer(model_size="tiny", device="GPU (CUDA)")
+        r2 = WhisperRecognizer(model_size="tiny", device="GPU (CUDA)")
+
+        r1._load_model()
+        r2._load_model()
+
+        assert r1._model is r2._model
         assert mock_whisper.load_model.call_count == 1
 
 

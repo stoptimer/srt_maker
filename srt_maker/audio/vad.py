@@ -85,6 +85,4 @@ class VADDetector:
             for ts in timestamps
         ]
 
-    def detect_empty(self) -> list[tuple[float, float]]:
-        """空音频返回空列表"""
-        return []
+ 

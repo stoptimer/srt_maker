@@ -3,14 +3,16 @@ from PySide6.QtWidgets import (
     QFrame, QGridLayout, QColorDialog,
 )
 from PySide6.QtGui import QColor, QMouseEvent
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 
 class _ColorFrame(QFrame):
     """可点击的颜色选择框"""
 
+    color_clicked = Signal()
+
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
-            self.parent()._on_color_clicked()
+            self.color_clicked.emit()
         super().mousePressEvent(event)
 
 class StylePanel(QWidget):
@@ -46,6 +48,7 @@ class StylePanel(QWidget):
         self._color_frame.setStyleSheet("background-color: white; border: 1px solid #999;")
         self._color_frame.setToolTip("点击选择颜色")
         self._color_frame.setCursor(Qt.PointingHandCursor)
+        self._color_frame.color_clicked.connect(self._on_color_clicked)
         grid.addWidget(self._color_frame, 2, 1)
 
         layout.addLayout(grid)

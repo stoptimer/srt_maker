@@ -1,6 +1,9 @@
 import os
 import sys
 
+# 必须在所有 import 之前设置，避免 PyTorch 和 PySide6 的 OpenMP DLL 冲突
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 # 在主线程中预加载 PyTorch，避免在工作线程中加载时出现 WinError 1114
 # PyTorch 的 DLL 初始化需要在主线程的 COM apartment 中完成
 try:
@@ -31,9 +34,10 @@ def main():
     window = MainWindow()
     log_handler = connect_log_to_ui(emitter)
 
-    # 连接日志信号到主窗口的日志面板
+    # 连接日志信号到主窗口的日志面板（QueuedConnection 确保 UI 更新在主线程）
     if hasattr(window, 'log_viewer'):
-        emitter.log.connect(window.log_viewer.append_log)
+        from PySide6.QtCore import Qt
+        emitter.log.connect(window.log_viewer.append_log, Qt.QueuedConnection)
 
     window.show()
     sys.exit(app.exec())

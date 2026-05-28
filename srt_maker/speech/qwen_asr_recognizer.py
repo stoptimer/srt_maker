@@ -1,5 +1,6 @@
 """qwen3-asr 语音识别器（通过 llama.cpp API）+ VAD 时间轴对齐"""
 
+import asyncio
 import re
 
 import requests
@@ -54,7 +55,6 @@ def align_text_with_vad(
                 entries.append(SubtitleEntry(start, end, ""))
     else:
         # 句子数 > 区间数：按区间均匀分配句子，最后一个区间取剩余全部
-        import math
         base_count = len(sentences) // len(vad_intervals)
         remainder = len(sentences) % len(vad_intervals)
         sentence_idx = 0
@@ -110,7 +110,7 @@ class QwenASRRecognizer(SpeechRecognizer):
             RuntimeError: VAD 检测失败
         """
         # 1. 调用 qwen3-asr API 获取文字
-        text = self._call_api(audio_path)
+        text = await self._call_api(audio_path)
 
         # 2. VAD 检测语音区间
         vad_intervals = self._vad.detect(audio_path)
@@ -121,7 +121,7 @@ class QwenASRRecognizer(SpeechRecognizer):
         subtitles.entries = entries
         return subtitles
 
-    def _call_api(self, audio_path: str) -> str:
+    async def _call_api(self, audio_path: str) -> str:
         """调用 qwen3-asr API 进行语音识别
 
         Args:
@@ -133,12 +133,15 @@ class QwenASRRecognizer(SpeechRecognizer):
         Raises:
             requests.RequestException: 网络请求失败
         """
-        with open(audio_path, "rb") as f:
-            response = requests.post(
-                f"{self._api_url}/inference",
-                files={"file": ("audio.wav", f, "audio/wav")},
-                timeout=300,
-            )
-        response.raise_for_status()
-        data = response.json()
-        return data.get("text", "").strip()
+        def _post() -> str:
+            with open(audio_path, "rb") as f:
+                response = requests.post(
+                    f"{self._api_url}/inference",
+                    files={"file": ("audio.wav", f, "audio/wav")},
+                    timeout=300,
+                )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("text", "").strip()
+
+        return await asyncio.to_thread(_post)

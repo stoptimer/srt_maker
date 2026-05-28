@@ -74,7 +74,11 @@ class SubtitleEditor(QTableWidget):
             start_text = self.item(row, 1).text() if self.item(row, 1) else ""
             end_text = self.item(row, 2).text() if self.item(row, 2) else ""
             text = self.item(row, 3).text() if self.item(row, 3) else ""
-            start = srt_to_seconds(start_text) if start_text else 0.0
-            end = srt_to_seconds(end_text) if end_text else 0.0
+            try:
+                start = srt_to_seconds(start_text) if start_text else 0.0
+                end = srt_to_seconds(end_text) if end_text else 0.0
+            except ValueError:
+                start = 0.0
+                end = 0.0
             subtitles.entries.append(SubtitleEntry(start, end, text))
         return subtitles

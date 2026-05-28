@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 import wave
 
 import numpy as np
@@ -14,31 +15,82 @@ logger = logging.getLogger(__name__)
 class WhisperRecognizer(SpeechRecognizer):
     """OpenAI Whisper 本地语音识别"""
 
-    _model_cache: dict[str, tuple] = {}
+    _model_cache: dict[tuple, tuple] = {}
+    _cache_lock = threading.Lock()
 
-    def __init__(self, model_size: str = "base"):
+    def __init__(self, model_size: str = "base", device: str = "auto"):
         self._model_size = model_size
         self._model = None
         self._device: str = "cpu"
+        self._requested_device = device
+
+    def _resolve_device(self) -> str:
+        """根据用户选择的设备解析实际设备
+
+        - "auto": 自动检测 GPU
+        - "GPU (CUDA)": 强制 GPU，不可用时回退 CPU
+        - "CPU": 强制 CPU
+        """
+        if self._requested_device == "CPU":
+            return "cpu"
+        if self._requested_device == "GPU (CUDA)":
+            import torch
+            if torch.cuda.is_available():
+                return "cuda"
+            # CUDA 不可用时提供详细诊断信息
+            cuda_version = getattr(torch.version, "cuda", None)
+            if cuda_version is None:
+                logger.warning(
+                    "用户选择 GPU 但 CUDA 不可用，回退到 CPU。"
+                    "原因：PyTorch 是 CPU 版本（%s），不包含 CUDA 支持。"
+                    "请安装 GPU 版本：pip install torch --index-url https://download.pytorch.org/whl/cu129",
+                    torch.__version__,
+                )
+            else:
+                logger.warning(
+                    "用户选择 GPU 但 CUDA 不可用，回退到 CPU。"
+                    "PyTorch 版本：%s，CUDA 版本：%s。"
+                    "可能原因：CUDA 驱动未安装或版本不兼容",
+                    torch.__version__,
+                    cuda_version,
+                )
+            return "cpu"
+        # "auto" 或未知值
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
 
     def _load_model(self):
-        """懒加载 Whisper 模型（使用类级别缓存，自动检测 GPU）"""
-        if self._model_size in WhisperRecognizer._model_cache:
-            cached_model, self._device = WhisperRecognizer._model_cache[self._model_size]
+        """懒加载 Whisper 模型（使用类级别缓存，支持用户指定设备，线程安全）"""
+        cache_key = (self._model_size, self._requested_device)
+        if cache_key in WhisperRecognizer._model_cache:
+            cached_model, self._device = WhisperRecognizer._model_cache[cache_key]
             self._model = cached_model
             return
 
-        import whisper
-        import torch
+        with WhisperRecognizer._cache_lock:
+            # 双重检查：获取锁后可能已被其他线程加载
+            if cache_key in WhisperRecognizer._model_cache:
+                cached_model, self._device = WhisperRecognizer._model_cache[cache_key]
+                self._model = cached_model
+                return
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._device = device
-        logger.info("加载 Whisper %s 模型，设备: %s", self._model_size, device)
-        self._model = whisper.load_model(self._model_size, device=device)
-        WhisperRecognizer._model_cache[self._model_size] = (self._model, device)
+            import whisper
+
+            device = self._resolve_device()
+            self._device = device
+            logger.info("加载 Whisper %s 模型，设备: %s", self._model_size, device)
+            self._model = whisper.load_model(self._model_size, device=device)
+            WhisperRecognizer._model_cache[cache_key] = (self._model, device)
 
     def name(self) -> str:
         return "Whisper"
+
+    def device_info(self) -> str | None:
+        """返回设备信息，内部会触发模型加载"""
+        self._load_model()
+        if self._device == "cuda":
+            return "GPU (CUDA)"
+        return "CPU"
 
     @staticmethod
     def _load_audio_as_array(audio_path: str) -> np.ndarray:
