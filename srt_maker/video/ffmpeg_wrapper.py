@@ -21,6 +21,58 @@ def _bundled_ffmpeg_dir() -> str:
         return str(bundled)
     return ""
 
+def _split_long_subtitles(
+    entries: list,
+    max_chars_per_line: int = 40,
+) -> list:
+    """拆分超长字幕条目，避免 libass 自动换行导致第二行被裁剪
+
+    将超过 max_chars_per_line 字符的字幕按空格拆分为多条，
+    每条平分原始时间区间，依次播放。
+
+    Args:
+        entries: 字幕条目列表
+        max_chars_per_line: 单行最大字符数
+
+    Returns:
+        拆分后的字幕条目列表
+    """
+    from srt_maker.core.subtitle_model import SubtitleEntry
+
+    result = []
+    for entry in entries:
+        if len(entry.text) <= max_chars_per_line:
+            result.append(entry)
+            continue
+
+        # 按空格拆分
+        lines = []
+        remaining = entry.text
+        while remaining:
+            cut = min(max_chars_per_line, len(remaining))
+            # 尝试在空格处断开
+            if cut < len(remaining):
+                space = remaining.rfind(" ", 0, cut)
+                if space >= cut // 2:
+                    cut = space
+                else:
+                    space = remaining.find(" ", cut)
+                    if space >= 0 and space <= cut * 1.5:
+                        cut = space
+            lines.append(remaining[:cut].strip())
+            remaining = remaining[cut:].strip()
+
+        # 每条平分原始时间区间
+        duration = entry.end_time - entry.start_time
+        per_duration = duration / len(lines)
+        for i, line in enumerate(lines):
+            start = entry.start_time + per_duration * i
+            end = entry.start_time + per_duration * (i + 1)
+            result.append(SubtitleEntry(start, end, line))
+
+    return result
+
+
 class FFmpegWrapper:
     """FFmpeg 命令行封装"""
 
@@ -38,13 +90,21 @@ class FFmpegWrapper:
     def _resolve_ffmpeg_dir(explicit_dir: str) -> str:
         """解析 FFmpeg 目录，按优先级查找
 
-        优先级：显式参数 > 打包目录 > 环境变量 > 空（从 PATH 查找）
+        优先级：显式参数 > 打包目录 > 配置文件 > 环境变量 > 空（从 PATH 查找）
         """
         if explicit_dir:
             return explicit_dir
         bundled = _bundled_ffmpeg_dir()
         if bundled:
             return bundled
+        # 从配置文件读取，避免模块级 _DEFAULT_FFMPEG_DIR 在环境变量设置前就被求值的问题
+        try:
+            from srt_maker.core.config import load_config
+            config_dir = load_config().get("ffmpeg_dir", "")
+            if config_dir:
+                return config_dir
+        except Exception:
+            pass
         if _DEFAULT_FFMPEG_DIR:
             return _DEFAULT_FFMPEG_DIR
         return ""
@@ -119,6 +179,7 @@ class FFmpegWrapper:
 
         将 SRT 转换为带样式的 ASS 文件，避免 force_style 参数解析问题。
         临时 ASS 文件创建在与视频文件同目录，使用相对路径避免 Windows 盘符冒号问题。
+        超长字幕会在烧录前自动拆分，避免 libass 换行导致第二行被裁剪。
         """
         from srt_maker.io.srt_parser import parse_srt
         from srt_maker.core.timecode import seconds_to_srt
@@ -127,6 +188,9 @@ class FFmpegWrapper:
         with open(srt_path, "r", encoding="utf-8") as f:
             srt_content = f.read()
         entries = parse_srt(srt_content)
+
+        # 拆分超长字幕，避免 libass 自动换行导致第二行被裁剪
+        entries = _split_long_subtitles(entries)
 
         # 将 SRT 内容转换为 ASS 文件（含样式信息）
         ass_content = (
