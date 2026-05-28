@@ -32,3 +32,4 @@ temp/
 
 # PyInstaller 输出
 *.spec
+!srt_maker.spec
