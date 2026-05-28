@@ -1,3 +1,7 @@
+import os
+import tempfile
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QMainWindow, QMenuBar, QToolBar, QFileDialog,
     QMessageBox, QStatusBar, QSplitter, QGroupBox,
@@ -12,6 +16,7 @@ from srt_maker.ui.waveform_view import WaveformView
 from srt_maker.ui.subtitle_editor import SubtitleEditor
 from srt_maker.ui.style_panel import StylePanel
 from srt_maker.ui.log_viewer import LogViewer
+from srt_maker.ui.burn_worker import BurnWorker
 from srt_maker.core.subtitle_list import SubtitleList
 from srt_maker.io.srt_parser import write_srt
 
@@ -32,6 +37,8 @@ class MainWindow(QMainWindow):
         self._subtitles = SubtitleList()
         self._worker: RecognitionWorker | None = None
         self._worker_thread: QThread | None = None
+        self._burn_worker: "BurnWorker" | None = None
+        self._burn_worker_thread: QThread | None = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -316,7 +323,118 @@ class MainWindow(QMainWindow):
         if not self._subtitles.entries:
             QMessageBox.warning(self, "提示", "请先加载字幕")
             return
-        # TODO: 执行烧录任务
+
+        # 检查 FFmpeg 是否可用
+        from srt_maker.video.ffmpeg_wrapper import FFmpegWrapper
+        if not FFmpegWrapper().is_available():
+            QMessageBox.critical(
+                self, "错误",
+                "未找到 FFmpeg，请先安装 FFmpeg 并将其添加到系统 PATH 中，\n"
+                "或通过设置配置 FFmpeg 路径。"
+            )
+            return
+
+        # 将字幕写入临时 SRT 文件
+        srt_fd, srt_path = tempfile.mkstemp(suffix=".srt", prefix="srt_maker_")
+        try:
+            with os.fdopen(srt_fd, "w", encoding="utf-8") as f:
+                f.write(write_srt(self._subtitles.entries))
+        except Exception:
+            os.unlink(srt_path)
+            raise
+
+        # 获取样式
+        style = self.style_panel.get_style()
+        font_name = style["font_name"]
+        font_size = style["font_size"]
+        color = _qcolor_to_ffmpeg_color(style["color"])
+
+        # 选择输出路径
+        video_name = Path(self._video_path).stem
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存烧录视频",
+            f"{video_name}_with_subtitles.mp4",
+            "视频文件 (*.mp4)",
+        )
+        if not output_path:
+            os.unlink(srt_path)
+            return
+
+        # 创建 worker 和线程
+        self._burn_worker = BurnWorker()
+        self._burn_worker_thread = QThread()
+
+        self._burn_worker.moveToThread(self._burn_worker_thread)
+
+        # 连接信号
+        self._burn_worker_thread.started.connect(
+            lambda: self._burn_worker.burn(
+                self._video_path,
+                srt_path,
+                output_path,
+                font_name,
+                font_size,
+                color,
+            )
+        )
+        self._burn_worker.progress.connect(self._on_burn_progress)
+        self._burn_worker.finished.connect(self._on_burn_finished)
+        self._burn_worker.error.connect(self._on_burn_error)
+
+        # 保存临时文件路径用于清理
+        self._burn_srt_path = srt_path
+
+        # 启动
+        self.progress.setVisible(True)
+        self.progress.setMaximum(0)  # 不定长模式
+        self.statusBar().showMessage("烧录中...")
+        self._burn_worker_thread.start()
+
+    def _on_burn_progress(self, text: str, percentage: int):
+        """更新烧录进度"""
+        self.progress.setValue(percentage)
+        self.statusBar().showMessage(text)
+
+    def _on_burn_finished(self):
+        """烧录完成"""
+        # 清理临时 SRT 文件
+        if hasattr(self, '_burn_srt_path') and self._burn_srt_path:
+            try:
+                os.unlink(self._burn_srt_path)
+            except OSError:
+                pass
+
+        self.statusBar().showMessage("烧录完成")
+        self._cleanup_burn_worker()
+
+    def _on_burn_error(self, message: str):
+        """烧录失败"""
+        # 清理临时 SRT 文件
+        if hasattr(self, '_burn_srt_path') and self._burn_srt_path:
+            try:
+                os.unlink(self._burn_srt_path)
+            except OSError:
+                pass
+
+        QMessageBox.critical(self, "烧录失败", message)
+        self._cleanup_burn_worker()
+
+    def _cleanup_burn_worker(self):
+        """清理烧录工作线程资源"""
+        if self._burn_worker_thread:
+            self._burn_worker_thread.quit()
+            if not self._burn_worker_thread.wait(5000):
+                self._burn_worker_thread.terminate()
+                self._burn_worker_thread.wait()
+            self._burn_worker_thread.deleteLater()
+            self._burn_worker_thread = None
+        if self._burn_worker:
+            self._burn_worker.deleteLater()
+            self._burn_worker = None
+        self.progress.setVisible(False)
+        self.progress.setMaximum(100)  # 恢复定长模式
+        self.progress.setValue(0)
 
     def _on_subtitle_selected(self, row: int):
         if row >= 0 and row < len(self._subtitles.entries):
