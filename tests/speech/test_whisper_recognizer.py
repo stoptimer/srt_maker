@@ -23,21 +23,22 @@ def test_whisper_instance():
 
 def test_whisper_model_cache():
     """测试 Whisper 模型缓存 — 相同 model_size 返回同一模型"""
-    # 清除缓存以确保测试独立性
     WhisperRecognizer._model_cache.clear()
 
     r1 = WhisperRecognizer(model_size="tiny")
     r2 = WhisperRecognizer(model_size="tiny")
 
     mock_whisper = MagicMock()
+    mock_torch = MagicMock()
     mock_model = MagicMock()
     mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = False
 
-    with patch.dict('sys.modules', {'whisper': mock_whisper}):
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
         # 首次加载
         r1._load_model()
         assert r1._model is not None
-        mock_whisper.load_model.assert_called_once_with("tiny")
+        mock_whisper.load_model.assert_called_once_with("tiny", device="cpu")
 
         # 第二次应从缓存获取
         r2._load_model()
@@ -55,11 +56,13 @@ def test_whisper_model_cache_different_sizes():
     r2 = WhisperRecognizer(model_size="base")
 
     mock_whisper = MagicMock()
+    mock_torch = MagicMock()
     mock_tiny = MagicMock()
     mock_base = MagicMock()
     mock_whisper.load_model.side_effect = [mock_tiny, mock_base]
+    mock_torch.cuda.is_available.return_value = False
 
-    with patch.dict('sys.modules', {'whisper': mock_whisper}):
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
         r1._load_model()
         r2._load_model()
 
@@ -69,17 +72,18 @@ def test_whisper_model_cache_different_sizes():
 
 
 def test_whisper_transcribe_fp16_disabled():
-    """测试 transcribe 调用时正确传递 fp16=False，避免 CPU 上的 FP16 警告"""
+    """测试 transcribe 调用时正确传递 fp16=False（CPU 模式）"""
     WhisperRecognizer._model_cache.clear()
 
     mock_whisper = MagicMock()
+    mock_torch = MagicMock()
     mock_model = MagicMock()
     mock_model.transcribe.return_value = {"segments": []}
     mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = False
 
-    with patch.dict('sys.modules', {'whisper': mock_whisper}):
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
         with patch.object(WhisperRecognizer, '_load_audio_as_array') as mock_load:
-            import numpy as np
             mock_load.return_value = np.zeros(16000, dtype=np.float32)
 
             recognizer = WhisperRecognizer(model_size="tiny")
@@ -101,6 +105,116 @@ def test_whisper_transcribe_fp16_disabled():
             assert call_kwargs["fp16"] is False, "fp16 应该为 False"
             # 确保没有嵌套的 decode_options 字典
             assert "decode_options" not in call_kwargs, "不应该有嵌套的 decode_options 字典"
+
+
+def test_whisper_gpu_device_selection():
+    """测试 GPU 可用时选择 CUDA 设备"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny")
+        recognizer._load_model()
+
+        mock_whisper.load_model.assert_called_once_with("tiny", device="cuda")
+        assert recognizer._device == "cuda"
+
+
+def test_whisper_cpu_fallback():
+    """测试 GPU 不可用时回退到 CPU"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = False
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        recognizer = WhisperRecognizer(model_size="tiny")
+        recognizer._load_model()
+
+        mock_whisper.load_model.assert_called_once_with("tiny", device="cpu")
+        assert recognizer._device == "cpu"
+
+
+def test_whisper_fp16_on_cuda():
+    """测试 CUDA 设备上 fp16=True"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_model.transcribe.return_value = {"segments": []}
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        with patch.object(WhisperRecognizer, '_load_audio_as_array') as mock_load:
+            mock_load.return_value = np.zeros(16000, dtype=np.float32)
+
+            recognizer = WhisperRecognizer(model_size="tiny")
+            recognizer._load_model()
+
+            import asyncio
+            asyncio.run(recognizer.recognize("fake.wav", "zh"))
+
+            call_kwargs = mock_model.transcribe.call_args[1]
+            assert call_kwargs["fp16"] is True
+
+        mock_model.transcribe.return_value = {"segments": []}
+
+
+def test_whisper_fp16_false_on_cpu():
+    """测试 CPU 设备上 fp16=False"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_model.transcribe.return_value = {"segments": []}
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = False
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        with patch.object(WhisperRecognizer, '_load_audio_as_array') as mock_load:
+            mock_load.return_value = np.zeros(16000, dtype=np.float32)
+
+            recognizer = WhisperRecognizer(model_size="tiny")
+            recognizer._load_model()
+
+            import asyncio
+            asyncio.run(recognizer.recognize("fake.wav", "zh"))
+
+            call_kwargs = mock_model.transcribe.call_args[1]
+            assert call_kwargs["fp16"] is False
+
+
+def test_whisper_model_cache_preserves_device():
+    """测试模型缓存命中时 device 正确恢复"""
+    WhisperRecognizer._model_cache.clear()
+
+    mock_whisper = MagicMock()
+    mock_torch = MagicMock()
+    mock_model = MagicMock()
+    mock_whisper.load_model.return_value = mock_model
+    mock_torch.cuda.is_available.return_value = True
+
+    with patch.dict('sys.modules', {'whisper': mock_whisper, 'torch': mock_torch}):
+        r1 = WhisperRecognizer(model_size="tiny")
+        r1._load_model()
+        assert r1._device == "cuda"
+
+        r2 = WhisperRecognizer(model_size="tiny")
+        r2._load_model()
+        assert r2._device == "cuda"
+
+        assert mock_whisper.load_model.call_count == 1
 
 
 def test_load_audio_as_array():

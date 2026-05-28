@@ -1,5 +1,5 @@
-# srt_maker/speech/whisper_recognizer.py
 import asyncio
+import logging
 import wave
 
 import numpy as np
@@ -8,24 +8,34 @@ from srt_maker.speech.base import SpeechRecognizer
 from srt_maker.core.subtitle_list import SubtitleList
 from srt_maker.core.subtitle_model import SubtitleEntry
 
+logger = logging.getLogger(__name__)
+
 
 class WhisperRecognizer(SpeechRecognizer):
     """OpenAI Whisper 本地语音识别"""
 
-    _model_cache: dict[str, object] = {}
+    _model_cache: dict[str, tuple] = {}
 
     def __init__(self, model_size: str = "base"):
         self._model_size = model_size
         self._model = None
+        self._device: str = "cpu"
 
     def _load_model(self):
-        """懒加载 Whisper 模型（使用类级别缓存）"""
+        """懒加载 Whisper 模型（使用类级别缓存，自动检测 GPU）"""
         if self._model_size in WhisperRecognizer._model_cache:
-            self._model = WhisperRecognizer._model_cache[self._model_size]
-        else:
-            import whisper
-            self._model = whisper.load_model(self._model_size)
-            WhisperRecognizer._model_cache[self._model_size] = self._model
+            cached_model, self._device = WhisperRecognizer._model_cache[self._model_size]
+            self._model = cached_model
+            return
+
+        import whisper
+        import torch
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._device = device
+        logger.info("加载 Whisper %s 模型，设备: %s", self._model_size, device)
+        self._model = whisper.load_model(self._model_size, device=device)
+        WhisperRecognizer._model_cache[self._model_size] = (self._model, device)
 
     def name(self) -> str:
         return "Whisper"
@@ -51,13 +61,14 @@ class WhisperRecognizer(SpeechRecognizer):
         """识别音频并返回字幕列表"""
         self._load_model()
 
-        # 在独立线程中执行转录，避免阻塞事件循环
-        # 显式禁用 FP16，避免在 CPU 上触发 Whisper 的 FP16 不支持警告
-        # 预先将音频加载为 NumPy 数组，避免 Whisper 内部调用 FFmpeg
+        # GPU 上使用 FP16 加速，CPU 上禁用 FP16
+        fp16 = (self._device == "cuda")
+        logger.info("开始转录，fp16=%s", fp16)
+
         def _transcribe():
             audio_array = WhisperRecognizer._load_audio_as_array(audio_path)
             return self._model.transcribe(
-                audio_array, language=language, verbose=False, fp16=False,
+                audio_array, language=language, verbose=False, fp16=fp16,
             )
 
         result = await asyncio.to_thread(_transcribe)
@@ -69,4 +80,5 @@ class WhisperRecognizer(SpeechRecognizer):
                 text=segment["text"].strip(),
             )
             subtitles.entries.append(entry)
+        logger.info("转录完成，共 %d 条字幕", len(subtitles.entries))
         return subtitles
