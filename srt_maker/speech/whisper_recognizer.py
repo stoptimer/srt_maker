@@ -104,8 +104,18 @@ class WhisperRecognizer(SpeechRecognizer):
 
         Returns:
             float32 类型的 NumPy 数组，值范围 [-1.0, 1.0]
+
+        Raises:
+            ValueError: 音频格式不符合预期（16kHz 单声道 PCM 16-bit WAV）
         """
         with wave.open(audio_path, "rb") as wav_file:
+            sample_rate = wav_file.getframerate()
+            channels = wav_file.getnchannels()
+            if sample_rate != 16000 or channels != 1:
+                raise ValueError(
+                    f"音频格式不符合预期：采样率={sample_rate}Hz, 声道数={channels}，"
+                    f"预期 16kHz 单声道 PCM 16-bit WAV"
+                )
             raw_data = wav_file.readframes(wav_file.getnframes())
         return np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
 

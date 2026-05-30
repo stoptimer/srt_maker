@@ -36,5 +36,5 @@ temp/
 *.spec
 !srt_maker.spec
 
-# Docs
+# Docs (project documentation, stored locally)
 docs/

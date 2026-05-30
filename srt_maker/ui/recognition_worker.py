@@ -132,6 +132,7 @@ class RecognitionWorker(QObject):
         import asyncio
 
         loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(recognizer.recognize(audio_path, language))
         finally:

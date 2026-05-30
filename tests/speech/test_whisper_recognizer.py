@@ -454,3 +454,47 @@ def test_load_audio_as_array():
     finally:
         import os
         os.unlink(wav_path)
+
+
+
+
+def test_load_audio_wrong_sample_rate():
+    """Test WAV sample rate mismatch raises ValueError"""
+    import wave
+    import tempfile
+    import os
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        tmp_path = f.name
+    try:
+        with wave.open(tmp_path, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(44100)
+            wav_file.writeframes(b"\x00" * 100)
+
+        with pytest.raises(ValueError):
+            WhisperRecognizer._load_audio_as_array(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_load_audio_wrong_channels():
+    """Test WAV channel count mismatch raises ValueError"""
+    import wave
+    import tempfile
+    import os
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        tmp_path = f.name
+    try:
+        with wave.open(tmp_path, "wb") as wav_file:
+            wav_file.setnchannels(2)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(16000)
+            wav_file.writeframes(b"\x00" * 100)
+
+        with pytest.raises(ValueError):
+            WhisperRecognizer._load_audio_as_array(tmp_path)
+    finally:
+        os.unlink(tmp_path)
